@@ -1,138 +1,115 @@
-**Ejecutar el proyecto desde cero**
+COMO EJECUTAR EL PROYECTO
 
-1. Instalar Git y Docker Desktop. Abrir Docker Desktop y esperar a que esté iniciado.
-2. Abrir PowerShell o una terminal y descargar el proyecto:
+Necesitas Git y Docker Desktop instalado. Abre Docker Desktop antes de comenzar.
 
-```bash
+1. Abre PowerShell y descarga el proyecto:
+
 git clone https://github.com/JoacoRFM/BD2_Project.git
 cd BD2_Project
-```
 
-3. Construir e iniciar PostgreSQL con la extensión:
+Si ya tienes la carpeta del proyecto, entra en ella y usa git pull origin main.
 
-```bash
+2. Inicia PostgreSQL:
+
 docker compose up -d --build
+
+3. Revisa que esté funcionando:
+
 docker compose ps
-```
 
-4. Entrar a PostgreSQL:
+4. Entra a la base de datos:
 
-```bash
 docker compose exec postgres psql -U bd2 -d bd2
-```
 
-5. Dentro de PostgreSQL, activar la extensión y crear una tabla de ejemplo:
+5. Dentro de PostgreSQL, activa la extensión:
 
-```sql
 CREATE EXTENSION IF NOT EXISTS skiplist;
 
-CREATE TABLE alumnos (
-    id INTEGER PRIMARY KEY,
-    nombre VARCHAR(100),
-    edad INTEGER
-);
+6. Crea una tabla e inserta datos:
 
-INSERT INTO alumnos (id, nombre, edad) VALUES
-(1, 'Ana', 20),
-(2, 'Luis', 21),
-(3, 'Maria', 19);
-
+CREATE TABLE alumnos (id INTEGER PRIMARY KEY, nombre TEXT, edad INTEGER);
+INSERT INTO alumnos (id, nombre, edad) VALUES (1, 'Ana', 20), (2, 'Luis', 21), (3, 'Maria', 19);
 SELECT * FROM alumnos;
-```
 
-6. Construir la Skip List y probar las búsquedas:
+7. Crea la Skip List usando la columna id:
 
-```sql
 SELECT sl_build('alumnos'::regclass, 'id');
+
+8. Prueba las búsquedas:
+
 SELECT sl_count();
 SELECT sl_search(2);
 SELECT * FROM alumnos WHERE ctid = sl_search(2);
+SELECT * FROM sl_range(1, 3);
 
-SELECT a.*
-FROM sl_range(1, 3) AS r(tid_encontrado)
-JOIN alumnos a ON a.ctid = r.tid_encontrado
-ORDER BY a.id;
-```
+9. Para agregar una fila nueva a la tabla y a la Skip List:
 
-7. Para agregar una fila nueva a la tabla y a la Skip List en la misma operación:
-
-```sql
 WITH nuevo AS (
     INSERT INTO alumnos (id, nombre, edad)
     VALUES (4, 'Pedro', 22)
     RETURNING id, ctid
 )
 SELECT sl_insert(id, ctid) FROM nuevo;
-```
 
-8. Salir de PostgreSQL con `\q`.
+10. Sal de PostgreSQL:
 
-**Ejecutar las pruebas del proyecto**
+\q
 
-Estos comandos se ejecutan en PowerShell o en la terminal, fuera de PostgreSQL:
+PARA EJECUTAR LOS ARCHIVOS DE PRUEBA
 
-```bash
+Estos comandos van en PowerShell, fuera de PostgreSQL:
+
 docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/01_demo.sql
 docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/03_verificaciones.sql
 docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/02_comparacion.sql
-```
 
-**Comandos de Docker y terminal**
+COMANDOS DE TERMINAL
 
-| Comando | Para qué sirve |
-|---|---|
-| `git pull origin main` | Descargar los últimos cambios del repositorio |
-| `docker compose up -d --build` | Construir e iniciar el proyecto |
-| `docker compose ps` | Ver si PostgreSQL está funcionando |
-| `docker compose exec postgres psql -U bd2 -d bd2` | Entrar a PostgreSQL |
-| `docker compose logs postgres` | Ver mensajes del contenedor |
-| `docker compose restart postgres` | Reiniciar PostgreSQL |
-| `docker compose down` | Detener los contenedores sin borrar los datos |
-| `docker compose down -v` | Detener y borrar también los datos guardados en Docker |
+git pull origin main                         Descargar cambios recientes
+docker compose up -d --build                 Iniciar y compilar el proyecto
+docker compose ps                            Ver el estado de PostgreSQL
+docker compose exec postgres psql -U bd2 -d bd2   Entrar a PostgreSQL
+docker compose logs postgres                 Ver mensajes del servidor
+docker compose restart postgres              Reiniciar PostgreSQL
+docker compose down                          Detener sin borrar datos
+docker compose down -v                       Detener y borrar datos guardados
 
-**Comandos dentro de PostgreSQL (psql)**
+COMANDOS DENTRO DE POSTGRESQL
 
-| Comando | Para qué sirve |
-|---|---|
-| `\l` | Ver las bases de datos |
-| `\c bd2` | Conectarse a la base de datos bd2 |
-| `\dt` | Ver las tablas |
-| `\d alumnos` | Ver las columnas de la tabla alumnos |
-| `\dx` | Ver las extensiones instaladas |
-| `\?` | Ver ayuda de comandos de psql |
-| `\h` | Ver ayuda de SQL |
-| `\q` | Salir de PostgreSQL |
+\l                 Mostrar bases de datos
+\c bd2             Conectarse a la base bd2
+\dt                Mostrar tablas
+\d alumnos         Mostrar estructura de alumnos
+\dx                Mostrar extensiones
+\?                 Ayuda de comandos de psql
+\h                 Ayuda de SQL
+\q                 Salir
 
-**Comandos SQL para manejar la base de datos**
+COMANDOS SQL
 
-| Comando | Para qué sirve |
-|---|---|
-| `CREATE DATABASE prueba;` | Crear una base de datos |
-| `CREATE TABLE alumnos (id INTEGER PRIMARY KEY, nombre TEXT);` | Crear una tabla |
-| `SELECT * FROM alumnos;` | Ver todas las filas |
-| `SELECT * FROM alumnos WHERE id = 2;` | Buscar una fila por su id |
-| `INSERT INTO alumnos (id, nombre) VALUES (5, 'Sofia');` | Insertar una fila (ejemplo para una tabla de dos columnas) |
-| `UPDATE alumnos SET edad = 23 WHERE id = 2;` | Modificar una fila de la tabla de tres columnas |
-| `DELETE FROM alumnos WHERE id = 3;` | Eliminar una fila |
-| `DROP TABLE alumnos;` | Eliminar la tabla |
+CREATE DATABASE prueba;                                    Crear base de datos
+CREATE TABLE alumnos (id INTEGER PRIMARY KEY, nombre TEXT, edad INTEGER);   Crear tabla
+SELECT * FROM alumnos;                                     Ver filas
+SELECT * FROM alumnos WHERE id = 2;                        Buscar por id
+INSERT INTO alumnos (id, nombre, edad) VALUES (5, 'Sofia', 20);   Insertar fila
+UPDATE alumnos SET edad = 23 WHERE id = 2;                 Actualizar fila
+DELETE FROM alumnos WHERE id = 3;                          Eliminar fila
+DROP TABLE alumnos;                                        Eliminar tabla
 
-**Comandos de la Skip List**
+COMANDOS DE LA SKIP LIST
 
-| Comando | Para qué sirve |
-|---|---|
-| `CREATE EXTENSION IF NOT EXISTS skiplist;` | Activar la extensión |
-| `SELECT sl_build('alumnos'::regclass, 'id');` | Construir o reconstruir la Skip List desde la tabla |
-| `SELECT sl_search(2);` | Buscar la clave 2 y devolver su CTID |
-| `SELECT * FROM alumnos WHERE ctid = sl_search(2);` | Obtener la fila correspondiente |
-| `SELECT * FROM sl_range(1, 5);` | Buscar CTID de claves entre 1 y 5 |
-| `SELECT sl_count();` | Contar las claves guardadas |
-| `SELECT sl_clear();` | Vaciar la Skip List |
-| `SELECT sl_insert(5, '(0,1)'::tid);` | Insertar una clave y un CTID manualmente (solo ejemplo de sintaxis; el CTID debe ser real) |
+CREATE EXTENSION IF NOT EXISTS skiplist;      Activar extensión
+SELECT sl_build('alumnos'::regclass, 'id');   Crear o reconstruir Skip List
+SELECT sl_search(2);                         Buscar clave y obtener CTID
+SELECT * FROM alumnos WHERE ctid = sl_search(2);   Obtener la fila encontrada
+SELECT * FROM sl_range(1, 5);                Buscar CTID entre dos claves
+SELECT sl_count();                           Contar claves
+SELECT sl_clear();                           Vaciar Skip List
 
-**Importante**
+IMPORTANTE
 
-- Los comandos `docker` se ejecutan en PowerShell o en la terminal. Los comandos SQL y los que empiezan con `\` se ejecutan dentro de `psql`.
-- La tabla se guarda en PostgreSQL, pero la Skip List está en memoria y solo existe en la conexión actual. Si sales con `\q` y vuelves a entrar, ejecuta nuevamente `sl_build`.
-- `sl_insert` no agrega filas a la tabla: solo registra una clave y su CTID en la Skip List. Para agregar una fila nueva usa `INSERT INTO` y después actualiza o reconstruye la Skip List.
-- Después de `UPDATE` o `DELETE`, conviene ejecutar nuevamente `SELECT sl_build('alumnos'::regclass, 'id');`, ya que los CTID pueden cambiar o quedar obsoletos.
-- La Skip List de este proyecto se usa llamando sus funciones SQL; no reemplaza automáticamente los índices de PostgreSQL.
+Los comandos docker se ejecutan en PowerShell. Los comandos SQL y los que comienzan con \ se ejecutan dentro de PostgreSQL.
+La tabla queda guardada, pero la Skip List solo existe durante la conexión actual. Al volver a entrar, usa sl_build otra vez.
+sl_insert solo modifica la Skip List, no la tabla. Para agregar una fila usa INSERT INTO y luego actualiza o reconstruye la Skip List.
+Si cambias o borras filas con UPDATE o DELETE, reconstruye la Skip List con sl_build para evitar CTID desactualizados.
+docker compose down -v borra también los datos almacenados.
