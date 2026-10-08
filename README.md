@@ -1,91 +1,138 @@
-# BD2 — Skip List en PostgreSQL (etapa I, hasta 5.6)
+**Ejecutar el proyecto desde cero**
 
-Implementación académica de una Skip List **en C** con un puente **SQL → extensión C → estructura en memoria** mediante SPI de PostgreSQL. El alcance termina en el punto **5.6** de la rúbrica (parcial práctico). No incluye distribución ni experimentación de la etapa II.
+1. Instalar Git y Docker Desktop. Abrir Docker Desktop y esperar a que esté iniciado.
+2. Abrir PowerShell o una terminal y descargar el proyecto:
 
-## Requisitos
-- Docker Desktop (Windows: motor Linux/WSL2) o Docker Engine con Docker Compose.
-- Git para clonar el proyecto.
-- Puerto local 55432 libre.
-- Docker debe poder descargar la imagen `postgres:18.6-bookworm`.
+```bash
+git clone https://github.com/JoacoRFM/BD2_Project.git
+cd BD2_Project
+```
 
-## Desde cero: Windows PowerShell o terminal Linux/macOS
-1. Inicia Docker Desktop / Docker Engine.
-2. Clona el proyecto y entra a su carpeta:
-   ```sh
-   git clone https://github.com/JoacoRFM/BD2_Project.git
-   cd BD2_Project
-   ```
-   En un repositorio privado, debes autenticarte en GitHub previamente.
-3. Construye la imagen e inicia PostgreSQL 18.6:
-   ```sh
-   docker compose up -d --build
-   ```
-4. Comprueba el estado (espera a que aparezca healthy):
-   ```sh
-   docker compose ps
-   ```
-5. Ejecuta la demostración **en una sola conexión**:
-   ```sh
-   docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/01_demo.sql
-   ```
-6. Comprueba las verificaciones automáticas:
-   ```sh
-   docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/03_verificaciones.sql
-   ```
-7. Ejecuta la comparación preliminar sin índice / B-tree / Skip List:
-   ```sh
-   docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/02_comparacion.sql
-   ```
+3. Construir e iniciar PostgreSQL con la extensión:
 
-Las funciones `sl_build`, `sl_search`, `sl_insert`, `sl_range`, `sl_count` y `sl_clear` operan en la **sesión PostgreSQL actual**. No ejecutes `sl_build` en un comando `psql -c` y `sl_search` en otro: cada comando abre una conexión nueva y pierde esa Skip List.
+```bash
+docker compose up -d --build
+docker compose ps
+```
 
-## Sesión SQL interactiva para exposición
-```sh
+4. Entrar a PostgreSQL:
+
+```bash
 docker compose exec postgres psql -U bd2 -d bd2
 ```
-Ya dentro de `psql`:
+
+5. Dentro de PostgreSQL, activar la extensión y crear una tabla de ejemplo:
+
 ```sql
 CREATE EXTENSION IF NOT EXISTS skiplist;
-SELECT sl_build('public.demo_skiplist'::regclass,'id');
-SELECT sl_search(20);
-SELECT * FROM public.demo_skiplist WHERE ctid = sl_search(20);
-SELECT sl_search(999) IS NULL AS ausente;
+
+CREATE TABLE alumnos (
+    id INTEGER PRIMARY KEY,
+    nombre VARCHAR(100),
+    edad INTEGER
+);
+
+INSERT INTO alumnos (id, nombre, edad) VALUES
+(1, 'Ana', 20),
+(2, 'Luis', 21),
+(3, 'Maria', 19);
+
+SELECT * FROM alumnos;
+```
+
+6. Construir la Skip List y probar las búsquedas:
+
+```sql
+SELECT sl_build('alumnos'::regclass, 'id');
 SELECT sl_count();
-\q
+SELECT sl_search(2);
+SELECT * FROM alumnos WHERE ctid = sl_search(2);
+
+SELECT a.*
+FROM sl_range(1, 3) AS r(tid_encontrado)
+JOIN alumnos a ON a.ctid = r.tid_encontrado
+ORDER BY a.id;
 ```
 
-## Reiniciar
-```sh
-docker compose restart postgres
+7. Para agregar una fila nueva a la tabla y a la Skip List en la misma operación:
+
+```sql
+WITH nuevo AS (
+    INSERT INTO alumnos (id, nombre, edad)
+    VALUES (4, 'Pedro', 22)
+    RETURNING id, ctid
+)
+SELECT sl_insert(id, ctid) FROM nuevo;
 ```
-Luego repite `01_demo.sql`, porque la Skip List no es persistente. La **tabla SQL sí persiste**. Para borrar también los datos y comenzar limpio:
-```sh
-docker compose down -v
-docker compose up -d --build
+
+8. Salir de PostgreSQL con `\q`.
+
+**Ejecutar las pruebas del proyecto**
+
+Estos comandos se ejecutan en PowerShell o en la terminal, fuera de PostgreSQL:
+
+```bash
+docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/01_demo.sql
+docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/03_verificaciones.sql
+docker compose exec -T postgres psql -U bd2 -d bd2 -f /workspace/sql/02_comparacion.sql
 ```
 
-## Qué está integrado y qué NO
-- `skiplist.c/h`: nodos, niveles aleatorios, construcción, búsqueda, inserción, validación y rango.
-- `skiplist_pg.c`: expone las funciones SQL, utiliza SPI para leer filas y sus `ctid`, y mantiene los nodos en memoria de la conexión.
-- `skiplist--1.0.sql`: registra las funciones en PostgreSQL.
-- `Makefile`, `skiplist.control`: compilan/registran la extensión PGXS.
-- `Dockerfile` y `compose.yaml`: instalación reproducible con PostgreSQL 18.6.
-- La Skip List **no** es un `CREATE INDEX USING skiplist` ni un índice seleccionado automáticamente por `EXPLAIN`. La comparación es una **primera demostración funcional**, NO un benchmark científico equivalente.
-- Cada clave se almacena una vez. Claves duplicadas reemplazan el CTID previo.
-- `sl_insert` **no hace INSERT a la tabla**: primero inserta en SQL y luego registra el CTID retornado. Los UPDATE/DELETE y reorganizaciones que cambien CTID obligan a reconstruir la Skip List.
-- No hay WAL propio, persistencia de la estructura ni coordinación entre conexiones.
+**Comandos de Docker y terminal**
 
-## Explicación para el examen
-**Construcción:** `sl_build(tabla,columna)` abre un cursor SPI, lee `(integer,ctid)` y agrega cada par ordenadamente por `skiplist_insert`.
-**Búsqueda:** `sl_search(k)` recorre enlaces horizontales desde el nivel más alto al más bajo; devuelve el CTID encontrado o NULL.
-**Inserción:** `skiplist_insert` encuentra los predecesores de la clave en cada nivel y enlaza un nuevo nodo de altura aleatoria. Si existe la clave, actualiza el CTID.
-**Complejidad esperada:** búsqueda e inserción O(log n), construcción incremental O(n log n), memoria O(n). El peor caso puede ser O(n).
-**Comparación:** en `02_comparacion.sql` se consulta la misma clave sin índice y luego con B-tree y se demuestra búsqueda explícita con la Skip List. No atribuir al planificador un acceso automático a la Skip List.
+| Comando | Para qué sirve |
+|---|---|
+| `git pull origin main` | Descargar los últimos cambios del repositorio |
+| `docker compose up -d --build` | Construir e iniciar el proyecto |
+| `docker compose ps` | Ver si PostgreSQL está funcionando |
+| `docker compose exec postgres psql -U bd2 -d bd2` | Entrar a PostgreSQL |
+| `docker compose logs postgres` | Ver mensajes del contenedor |
+| `docker compose restart postgres` | Reiniciar PostgreSQL |
+| `docker compose down` | Detener los contenedores sin borrar los datos |
+| `docker compose down -v` | Detener y borrar también los datos guardados en Docker |
 
-## Referencias y procedencia
-- William Pugh, *Skip Lists: A Probabilistic Alternative to Balanced Trees* (1990), Communications of the ACM.
-- Documentación oficial PostgreSQL: [SPI](https://www.postgresql.org/docs/18/spi.html) y [PGXS](https://www.postgresql.org/docs/18/extend-pgxs.html).
-- Se preserva el código C de Skip List y el puente PostgreSQL preexistente del equipo. Los archivos de Docker, SQL de demostración/verificación/comparación y esta documentación fueron preparados con asistencia de IA (OpenAI ChatGPT, octubre de 2026); el equipo debe revisar, comprender y declarar su uso.
+**Comandos dentro de PostgreSQL (psql)**
 
-## Límites respecto a la rúbrica
-Este repositorio cubre código y demostraciones de la etapa I. La **propuesta inicial de hasta 2 páginas** del punto 5.5 requiere agregar los nombres del equipo, motivación propia y decisiones acordadas. Tampoco se implementa la etapa II (secciones 6 en adelante).
+| Comando | Para qué sirve |
+|---|---|
+| `\l` | Ver las bases de datos |
+| `\c bd2` | Conectarse a la base de datos bd2 |
+| `\dt` | Ver las tablas |
+| `\d alumnos` | Ver las columnas de la tabla alumnos |
+| `\dx` | Ver las extensiones instaladas |
+| `\?` | Ver ayuda de comandos de psql |
+| `\h` | Ver ayuda de SQL |
+| `\q` | Salir de PostgreSQL |
+
+**Comandos SQL para manejar la base de datos**
+
+| Comando | Para qué sirve |
+|---|---|
+| `CREATE DATABASE prueba;` | Crear una base de datos |
+| `CREATE TABLE alumnos (id INTEGER PRIMARY KEY, nombre TEXT);` | Crear una tabla |
+| `SELECT * FROM alumnos;` | Ver todas las filas |
+| `SELECT * FROM alumnos WHERE id = 2;` | Buscar una fila por su id |
+| `INSERT INTO alumnos (id, nombre) VALUES (5, 'Sofia');` | Insertar una fila (ejemplo para una tabla de dos columnas) |
+| `UPDATE alumnos SET edad = 23 WHERE id = 2;` | Modificar una fila de la tabla de tres columnas |
+| `DELETE FROM alumnos WHERE id = 3;` | Eliminar una fila |
+| `DROP TABLE alumnos;` | Eliminar la tabla |
+
+**Comandos de la Skip List**
+
+| Comando | Para qué sirve |
+|---|---|
+| `CREATE EXTENSION IF NOT EXISTS skiplist;` | Activar la extensión |
+| `SELECT sl_build('alumnos'::regclass, 'id');` | Construir o reconstruir la Skip List desde la tabla |
+| `SELECT sl_search(2);` | Buscar la clave 2 y devolver su CTID |
+| `SELECT * FROM alumnos WHERE ctid = sl_search(2);` | Obtener la fila correspondiente |
+| `SELECT * FROM sl_range(1, 5);` | Buscar CTID de claves entre 1 y 5 |
+| `SELECT sl_count();` | Contar las claves guardadas |
+| `SELECT sl_clear();` | Vaciar la Skip List |
+| `SELECT sl_insert(5, '(0,1)'::tid);` | Insertar una clave y un CTID manualmente (solo ejemplo de sintaxis; el CTID debe ser real) |
+
+**Importante**
+
+- Los comandos `docker` se ejecutan en PowerShell o en la terminal. Los comandos SQL y los que empiezan con `\` se ejecutan dentro de `psql`.
+- La tabla se guarda en PostgreSQL, pero la Skip List está en memoria y solo existe en la conexión actual. Si sales con `\q` y vuelves a entrar, ejecuta nuevamente `sl_build`.
+- `sl_insert` no agrega filas a la tabla: solo registra una clave y su CTID en la Skip List. Para agregar una fila nueva usa `INSERT INTO` y después actualiza o reconstruye la Skip List.
+- Después de `UPDATE` o `DELETE`, conviene ejecutar nuevamente `SELECT sl_build('alumnos'::regclass, 'id');`, ya que los CTID pueden cambiar o quedar obsoletos.
+- La Skip List de este proyecto se usa llamando sus funciones SQL; no reemplaza automáticamente los índices de PostgreSQL.
