@@ -1,18 +1,13 @@
-/*
- * skiplist.c  --  Implementación funcional completa de la Skip List
- */
 #include "skiplist.h"
 #ifndef SKIPLIST_STANDALONE
-#include "fmgr.h"  /* PG_MODULE_MAGIC */
+#include "fmgr.h"  
 #endif
 
 #ifndef SKIPLIST_STANDALONE
 PG_MODULE_MAGIC;
 #endif
 
-/* ================================================================== */
-/* 1. CICLO DE VIDA Y NODOS (Persona 2 & Persona 3)                   */
-/* ================================================================== */
+
 
 SkipListHeader* skiplist_create(int max_level, double p)
 {
@@ -22,9 +17,8 @@ SkipListHeader* skiplist_create(int max_level, double p)
     SkipListHeader* hdr = (SkipListHeader*)SL_ALLOC(sizeof(SkipListHeader));
     if (!hdr) return NULL;
 
-    /* Crear nodo centinela (head) con clave y tid vacíos */
-    ItemPointerData dummy_tid = { 0, 0 };
-    hdr->head = skiplist_node_create(0, dummy_tid, max_level);
+    ItemPointerData vacio = { 0, 0 };
+    hdr->head = skiplist_node_create(0, vacio, max_level);
     if (!hdr->head)
     {
         SL_FREE(hdr);
@@ -89,18 +83,16 @@ int skiplist_random_level(const SkipListHeader* hdr)
 {
     int level = 1;
     double p = (hdr && hdr->p > 0.0) ? hdr->p : SKIPLIST_P;
-    int max_lvl = (hdr && hdr->max_level > 0) ? hdr->max_level : SKIPLIST_MAX_LEVEL;
+    int maxNivel = (hdr && hdr->max_level > 0) ? hdr->max_level : SKIPLIST_MAX_LEVEL;
 
-    while (((double)rand() / RAND_MAX) < p && level < max_lvl)
+    while (((double)rand() / RAND_MAX) < p && level < maxNivel)
     {
         level++;
     }
     return level;
 }
 
-/* ================================================================== */
-/* 2. OPERACIONES PRINCIPALES (Persona 2 & Persona 3)                 */
-/* ================================================================== */
+
 
 SkipListHeader* skiplist_build(const int32* keys, const ItemPointerData* tids, uint64 n)
 {
@@ -121,7 +113,6 @@ bool skiplist_search(const SkipListHeader* hdr, int32 key, ItemPointerData* out_
 
     SkipListNode* curr = hdr->head;
 
-    /* Navegación descendente nivel por nivel */
     for (int i = hdr->current_level - 1; i >= 0; i--)
     {
         while (curr->forward[i] != NULL && curr->forward[i]->key < key)
@@ -132,7 +123,6 @@ bool skiplist_search(const SkipListHeader* hdr, int32 key, ItemPointerData* out_
 
     curr = curr->forward[0];
 
-    /* Verificar si encontramos la clave */
     if (curr != NULL && curr->key == key)
     {
         if (out_tid)
@@ -150,7 +140,6 @@ bool skiplist_insert(SkipListHeader* hdr, int32 key, ItemPointerData tid)
     SkipListNode* update[SKIPLIST_MAX_LEVEL];
     SkipListNode* curr = hdr->head;
 
-    /* 1. Buscar posición y guardar predecesores en update[] */
     for (int i = hdr->current_level - 1; i >= 0; i--)
     {
         while (curr->forward[i] != NULL && curr->forward[i]->key < key)
@@ -162,33 +151,30 @@ bool skiplist_insert(SkipListHeader* hdr, int32 key, ItemPointerData tid)
 
     curr = curr->forward[0];
 
-    /* Si la clave ya existe, actualizamos su tid */
     if (curr != NULL && curr->key == key)
     {
         curr->tid = tid;
         return true;
     }
 
-    /* 2. Generar nivel para el nuevo nodo */
-    int new_level = skiplist_random_level(hdr);
+    int nivelNuevo = skiplist_random_level(hdr);
 
-    if (new_level > hdr->current_level)
+    if (nivelNuevo > hdr->current_level)
     {
-        for (int i = hdr->current_level; i < new_level; i++)
+        for (int i = hdr->current_level; i < nivelNuevo; i++)
         {
             update[i] = hdr->head;
         }
-        hdr->current_level = new_level;
+        hdr->current_level = nivelNuevo;
     }
 
-    /* 3. Crear nodo y reconectar punteros */
-    SkipListNode* new_node = skiplist_node_create(key, tid, new_level);
-    if (!new_node) return false;
+    SkipListNode* nuevo = skiplist_node_create(key, tid, nivelNuevo);
+    if (!nuevo) return false;
 
-    for (int i = 0; i < new_level; i++)
+    for (int i = 0; i < nivelNuevo; i++)
     {
-        new_node->forward[i] = update[i]->forward[i];
-        update[i]->forward[i] = new_node;
+        nuevo->forward[i] = update[i]->forward[i];
+        update[i]->forward[i] = nuevo;
     }
 
     hdr->length++;
@@ -202,7 +188,6 @@ bool skiplist_delete(SkipListHeader* hdr, int32 key)
     SkipListNode* update[SKIPLIST_MAX_LEVEL];
     SkipListNode* curr = hdr->head;
 
-    /* 1. Ubicar el nodo y guardar sus predecesores */
     for (int i = hdr->current_level - 1; i >= 0; i--)
     {
         while (curr->forward[i] != NULL && curr->forward[i]->key < key)
@@ -214,11 +199,9 @@ bool skiplist_delete(SkipListHeader* hdr, int32 key)
 
     curr = curr->forward[0];
 
-    /* Si no existe la clave */
     if (curr == NULL || curr->key != key)
         return false;
 
-    /* 2. Desenlazar el nodo de todos sus niveles */
     for (int i = 0; i < hdr->current_level; i++)
     {
         if (update[i]->forward[i] != curr)
@@ -228,7 +211,6 @@ bool skiplist_delete(SkipListHeader* hdr, int32 key)
 
     skiplist_node_free(curr);
 
-    /* 3. Reajustar current_level si los niveles superiores quedaron vacíos */
     while (hdr->current_level > 1 && hdr->head->forward[hdr->current_level - 1] == NULL)
     {
         hdr->current_level--;
@@ -255,7 +237,6 @@ SkipListResult* skiplist_range_search(const SkipListHeader* hdr, int32 lo, int32
         return NULL;
     }
 
-    /* 1. Buscar el primer nodo >= lo */
     SkipListNode* curr = hdr->head;
     for (int i = hdr->current_level - 1; i >= 0; i--)
     {
@@ -267,21 +248,20 @@ SkipListResult* skiplist_range_search(const SkipListHeader* hdr, int32 lo, int32
 
     curr = curr->forward[0];
 
-    /* 2. Recorrer nivel 0 hasta que key > hi */
     while (curr != NULL && curr->key <= hi)
     {
         if (res->count >= res->capacity)
         {
-            uint64 new_cap = res->capacity * 2;
-            ItemPointerData* new_tids = (ItemPointerData*)SL_ALLOC(new_cap * sizeof(ItemPointerData));
-            if (!new_tids) break;
+            uint64 capNueva = res->capacity * 2;
+            ItemPointerData* datosNuevos = (ItemPointerData*)SL_ALLOC(capNueva * sizeof(ItemPointerData));
+            if (!datosNuevos) break;
 
             for (uint64 i = 0; i < res->count; i++)
-                new_tids[i] = res->tids[i];
+                datosNuevos[i] = res->tids[i];
 
             SL_FREE(res->tids);
-            res->tids = new_tids;
-            res->capacity = new_cap;
+            res->tids = datosNuevos;
+            res->capacity = capNueva;
         }
 
         res->tids[res->count++] = curr->tid;
@@ -298,9 +278,7 @@ void skiplist_result_free(SkipListResult* res)
     SL_FREE(res);
 }
 
-/* ================================================================== */
-/* 3. VALIDACIÓN Y DEPURACIÓN (Persona 5)                            */
-/* ================================================================== */
+
 
 bool skiplist_validate(const SkipListHeader* hdr)
 {
@@ -309,7 +287,6 @@ bool skiplist_validate(const SkipListHeader* hdr)
     SkipListNode* curr = hdr->head->forward[0];
     uint64 count = 0;
 
-    /* 1. Verificar orden ascendente estricto en Nivel 0 */
     while (curr != NULL)
     {
         count++;
@@ -324,7 +301,6 @@ bool skiplist_validate(const SkipListHeader* hdr)
         curr = curr->forward[0];
     }
 
-    /* 2. Verificar coherencia en conteo de elementos */
     if (count != hdr->length)
     {
 #ifdef SKIPLIST_STANDALONE
@@ -366,9 +342,8 @@ void skiplist_debug_print(const SkipListHeader* hdr)
 #endif
 }
 
-/* ================================================================== */
-/* 4. MAIN DE PRUEBA STANDALONE (Opcional para verificación rapida)    */
-/* ================================================================== */
+
+
 #ifdef SKIPLIST_STANDALONE
 int main(void)
 {
@@ -377,7 +352,6 @@ int main(void)
 
     ItemPointerData tid = { 1, 10 };
 
-    /* Inserciones de prueba */
     int32_t keys[] = { 15, 5, 20, 10, 3, 30, 25 };
     for (int i = 0; i < 7; i++)
     {
@@ -385,18 +359,15 @@ int main(void)
         skiplist_insert(sl, keys[i], tid);
     }
 
-    /* Imprimir y validar */
     skiplist_debug_print(sl);
     if (skiplist_validate(sl))
         printf("✓ Validación de invariantes exitosa.\n");
 
-    /* Búsqueda */
-    ItemPointerData found_tid;
-    if (skiplist_search(sl, 20, &found_tid))
+    ItemPointerData encontrado;
+    if (skiplist_search(sl, 20, &encontrado))
         printf("✓ Búsqueda exitosa: Clave 20 encontrada en (Block: %d, Offset: %d)\n",
-            found_tid.block, found_tid.offset);
+            encontrado.block, encontrado.offset);
 
-    /* Búsqueda por Rango [8, 22] */
     printf("\n--- Búsqueda por Rango [8, 22] ---\n");
     SkipListResult* res = skiplist_range_search(sl, 8, 22);
     if (res)
@@ -405,7 +376,6 @@ int main(void)
         skiplist_result_free(res);
     }
 
-    /* Eliminación */
     printf("\n--- Eliminando clave 10 ---\n");
     skiplist_delete(sl, 10);
     skiplist_debug_print(sl);
